@@ -1,0 +1,17 @@
+# 运行时数据，绝不提交
+.agentrouter/
+config.json
+accounts.json
+state.json
+jars/
+logs/
+.done_*
+*.log
+
+# 本地测试
+tests/mock_db.json
+cfg_*.json
+
+# 编辑器
+.DS_Store
+*.swp
