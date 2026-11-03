@@ -570,7 +570,7 @@ ask_secret() { # <prompt> -> 变量 REPLY
 add_account_password() {
   hr; say "${C_BOLD}添加账号 · GitHub 账号密码登录${C_N}"; hr
   local name gu gp gs
-  printf '备注名（如 主号 / 备用号）: '; read -r name
+  printf '备注名（如 zourjke / 主号）: '; read -r name
   [ -z "$name" ] && { err "备注名不能为空"; return 1; }
   printf 'GitHub 用户名或邮箱: '; read -r gu
   [ -z "$gu" ] && { err "用户名不能为空"; return 1; }
@@ -1019,7 +1019,9 @@ BANNER
     done
     [ -z "$site_px" ] && warn "直连和常见代理都不通，稍后可在「站点与网络设置」里改"
   fi
-  wiz_ask "  站点代理 [$site_px]: "; [ -n "$WIZ_ANS" ] && site_px="$WIZ_ANS"
+  wiz_ask "  站点代理 [$site_px]: "
+  if [ -n "$WIZ_ANS" ]; then site_px="$WIZ_ANS"
+  elif [ -z "$site_px" ]; then site_px="$SITE_PROXY"; fi   # 探测不到就保留原配置，别清空
   wiz_set '.site_proxy=$v' "$site_px" SITE_PROXY
 
   say "  正在测试 GitHub 连通性…"
@@ -1032,7 +1034,8 @@ BANNER
     warn "GitHub 直连/代理都不通，登录会失败"
   fi
   wiz_ask "  GitHub 代理（留空=直连，失败会自动切站点代理）[$gh_px]: "
-  [ -n "$WIZ_ANS" ] && gh_px="$WIZ_ANS"
+  if [ -n "$WIZ_ANS" ]; then gh_px="$WIZ_ANS"
+  elif [ -z "$gh_px" ]; then gh_px="$GH_PROXY"; fi
   wiz_set '.github_proxy=$v' "$gh_px" GH_PROXY
 
   # ---- 3. 账号
