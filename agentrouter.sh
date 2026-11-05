@@ -338,15 +338,29 @@ fmt_delta() { # <value>
 
 # ---------------------------------------------------------------- Telegram
 tg_send() { # <text>
-  local token chat
+  local token chat i ok
   token=$(cfg .tg.token); chat=$(cfg .tg.chat_id)
-  [ -z "$token" ] || [ -z "$chat" ] && return 1
-  curl -sS --max-time 40 ${SITE_PROXY:+-x "$SITE_PROXY"} \
+  if [ -z "$token" ] || [ -z "$chat" ]; then return 1; fi
+  for i in 1 2 3; do
+    if curl -sS -f --max-time 25 ${SITE_PROXY:+-x "$SITE_PROXY"} \
+         -X POST "https://api.telegram.org/bot$token/sendMessage" \
+         --data-urlencode "chat_id=$chat" \
+         --data-urlencode "parse_mode=HTML" \
+         --data-urlencode "disable_web_page_preview=true" \
+         --data-urlencode "text=$1" >/dev/null 2>&1; then
+      return 0
+    fi
+    dbg "tg_send 第 $i 次失败，2 秒后重试"
+    sleep 2
+  done
+  # 代理不通就直接试
+  curl -sS -f --max-time 20 --noproxy '*' \
        -X POST "https://api.telegram.org/bot$token/sendMessage" \
        --data-urlencode "chat_id=$chat" \
        --data-urlencode "parse_mode=HTML" \
        --data-urlencode "disable_web_page_preview=true" \
-       --data-urlencode "text=$1" >/dev/null 2>&1
+       --data-urlencode "text=$1" >/dev/null 2>&1 && { dbg "tg_send 直连兜底成功"; return 0; }
+  return 1
 }
 
 tg_probe_chats() { # <token>
@@ -541,7 +555,8 @@ run_all() { # <interactive:0|1>
 时间：$(date '+%F %T')"
   printf '%s\n' "$html" > "$AR_HOME/last_card.txt"
   if [ "$(cfg .tg.enabled)" = "true" ] && [ -n "$(cfg .tg.token)" ] && [ -n "$(cfg .tg.chat_id)" ]; then
-    if tg_send "$html"; then ok "已推送 Telegram"; else warn "Telegram 推送失败"; fi
+    if tg_send "$html"; then ok "已推送 Telegram"; date '+%F %T' > "$AR_HOME/.tgok_$(date +%F)"; log "TG 推送成功 chat=$(cfg .tg.chat_id)"
+    else warn "Telegram 推送失败"; log "TG 推送失败 chat=$(cfg .tg.chat_id)"; fi
   else
     warn "未配置 Telegram，仅本地输出"
   fi
@@ -1197,14 +1212,26 @@ main() {
   ar_init
   case "${1:-}" in
     --cron|--checkin)
-      local rc=0 done="$AR_HOME/.done_$(date +%F)"
+      local rc=0 done="$AR_HOME/.done_$(date +%F)" tgok="$AR_HOME/.tgok_$(date +%F)"
       if [ -f "$done" ] && [ "${2:-}" != "--force" ]; then
+        if [ ! -f "$tgok" ] && [ -s "$AR_HOME/last_card.txt" ]; then
+          if tg_send "$(cat "$AR_HOME/last_card.txt")"; then
+            date '+%F %T' > "$tgok"; log "补推今日卡片成功"
+            systemctl stop agentrouter-signin.timer 2>/dev/null
+          else
+            log "补推仍失败，等下次重试"; exit 2
+          fi
+        fi
         log "今日已签到，跳过"; exit 0
       fi
       if run_all 0; then
         date '+%F %T' > "$done"
-        if systemctl stop agentrouter-signin.timer 2>/dev/null; then
-          log "签到成功，已停止今日重试（次日 00:05 自动重新武装）"
+        if [ -f "$tgok" ]; then
+          if systemctl stop agentrouter-signin.timer 2>/dev/null; then
+            log "签到成功，已停止今日重试（次日 00:05 自动重新武装）"
+          fi
+        else
+          log "签到成功但推送未确认，20 分钟后补推"
         fi
         exit 0
       else
